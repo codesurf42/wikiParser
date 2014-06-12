@@ -1,29 +1,16 @@
+import akka.routing.RoundRobinRouter
 import java.util.Date
 import scala.concurrent.ExecutionContext.Implicits.global
 import akka.agent.Agent
-import akka.actor.Actor.Receive
 import akka.actor._
 import akka.event.Logging
-import akka.routing.RoundRobinPool
 import scala.io.Source
 import scala.xml.pull._
 import scala.xml.pull.EvComment
-import scala.xml.pull.EvComment
-import scala.xml.pull.EvComment
-import scala.xml.pull.EvElemEnd
-import scala.xml.pull.EvElemEnd
 import scala.xml.pull.EvElemEnd
 import scala.xml.pull.EvElemStart
-import scala.xml.pull.EvElemStart
-import scala.xml.pull.EvElemStart
-import scala.xml.pull.EvEntityRef
-import scala.xml.pull.EvEntityRef
 import scala.xml.pull.EvEntityRef
 import scala.xml.pull.EvProcInstr
-import scala.xml.pull.EvProcInstr
-import scala.xml.pull.EvProcInstr
-import scala.xml.pull.EvText
-import scala.xml.pull.EvText
 import scala.xml.pull.EvText
 
 /**
@@ -126,13 +113,13 @@ class ArticleParser extends Actor {
     )
     context.actorSelection("/user/longestArticle") ! ArticleSummary(art.title, art.text.length())
 
-    if ("linear_execution" == true) {
+    if (false) {
     val ap = new ArticleParsingLib()
     val geoPos = ap.getGeo(art)
     val seePlaces = ap.getSeePlaces(art)
     } else {
-      val geoPos = context.actorSelection("/user/geoParser")
-      val seePlaces = context.actorSelection("/user/seePlaces")
+      val geoPos = context.actorSelection("/user/geoParser") ! art
+      val seePlaces = context.actorSelection("/user/seePlaces") ! art
     }
   }
 }
@@ -177,7 +164,7 @@ class ArticleParsingLib {
 class LongestArticle extends Actor {
   val log = Logging(context.system, this)
   var max = 0
-  var count = 0
+  var count = 0 // naive implementation, this will break when a pool of thread > 1 / actor
 
   override def receive: Receive = {
     case e: ArticleSummary =>
@@ -185,8 +172,9 @@ class LongestArticle extends Actor {
       count += 1
       if (count % 1000 == 0) println(count)
       Parser.agentCount.send(_ + 1)
-      if (e.length > max) {
-        max = e.length
+      if (e.title.length > Parser.agentMaxArtTitleLen.get()) {
+        max = e.title.length
+        Parser.agentMaxArtTitleLen.send(max)
         Parser.agentMaxArtTitle.send(e.title)
       }
     case "stats" =>
@@ -200,13 +188,14 @@ object Parser extends App {
   //  val log = Logger
 
   val reader = system.actorOf(Props[XmlReader], "reader")
-  val parser = system.actorOf(Props[ArticleParser], "article")
-  val art = system.actorOf(Props[LongestArticle], "longestArticle")
-  val geo = system.actorOf(Props[ArticleGeoParser], "geoParser")
+  val parser = system.actorOf(Props[ArticleParser].withRouter(RoundRobinRouter(3)), "article")
+  val art = system.actorOf(Props[LongestArticle].withRouter(RoundRobinRouter(2)), "longestArticle")
+  val geo = system.actorOf(Props[ArticleGeoParser].withRouter(RoundRobinRouter(2)), "geoParser")
   val seePl = system.actorOf(Props[ArticleSeePlacesParser], "seePlaces")
 
   val agentCount = Agent(0)
   val agentMaxArtTitle = Agent("")
+  val agentMaxArtTitleLen = Agent(0)
 
   println("Sending flnm")
   val inbox = Inbox.create(system)
