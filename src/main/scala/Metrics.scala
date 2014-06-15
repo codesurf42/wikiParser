@@ -29,21 +29,28 @@ class Metrics extends Actor {
         .sortBy(-_._2)
         .foreach(
           kv =>
-            println(kv._1, kv._2, counter(kv._1))
+            println(f"${kv._1}%25s: ${(kv._2 / 1000).toInt}%12d, ${counter(kv._1)}%10d")
         )
     case _ =>
   }
 
-/*
-  val counter = Agent(mutable.HashMap[String, Int])
 
-  override def receive: Receive = {
-    case ExecTime(time, name) =>
-      counter.send(update(_))
-  }
+  /*
+    val counter = Agent(mutable.HashMap[String, Int])
 
-  def update(kv: mutable.HashMap[String, Int]):mutable.HashMap[String, Int] = {
-    kv
+    override def receive: Receive = {
+      case ExecTime(time, name) =>
+        counter.send(update(_))
+    }
+
+    def update(kv: mutable.HashMap[String, Int]):mutable.HashMap[String, Int] = {
+      kv
+    }
+  */
+}
+
+object TimeLib {
+  def getTime:Long = {
+    System.nanoTime()
   }
-*/
 }

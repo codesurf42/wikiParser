@@ -1,5 +1,4 @@
 import akka.routing.RoundRobinRouter
-import java.util.Date
 import scala.concurrent.ExecutionContext.Implicits.global
 import akka.agent.Agent
 import akka.actor._
@@ -36,18 +35,18 @@ class XmlReader extends Actor {
     log.debug(s"Reading file $name")
     // parse xml content
 
-    val t1 = new Date().getTime
+    val t1 = TimeLib.getTime
 
     val xml = new XMLEventReader(Source.fromFile(name))
 
-    val t2 = new Date().getTime
+    val t2 = TimeLib.getTime
     Parser.met ! ExecTime("readXml-FromFile", t2-t1)
 
     parseXml(xml)
 
-    val t3 = new Date().getTime
+    val t3 = TimeLib.getTime
     Parser.met ! ExecTime("readXml-parseXml", t3-t2)
-    println("Exec time: " + (t3 - t1))
+    println(f"Exec time: ${(t3 - t1) / Math.pow(10, 9)}%.2f sec")
 
   }
 
@@ -61,6 +60,8 @@ class XmlReader extends Actor {
 
     while (xml.hasNext) {
       log.debug("next: " + xml)
+      val t1 = TimeLib.getTime
+
       xml.next match {
         //          case EvElemStart(pre, label, attrs, scope) if label == "mediawiki" =>
         //            println(s"!!! - $label")
@@ -69,8 +70,7 @@ class XmlReader extends Actor {
         case EvElemStart(_, "redirect", _, _) if inPage => skipPage = true // just skip them now
 
         case EvElemStart(_, label, _, _) if inPage && label == "text" => inPageText = true
-        case EvElemStart(pre, label, attrs, scope) if inPage =>
-          log.debug(s"Elem of page: <$label>")
+        case EvElemStart(_, label, _, _) if inPage => log.debug(s"Elem of page: <$label>")
         case EvElemStart(pre, label, attrs, scope) => log.debug("START: ", pre, label, attrs, scope)
 
         case EvElemEnd(_, "page") =>
@@ -101,6 +101,7 @@ class XmlReader extends Actor {
         case EvComment(text) => log.debug(s"EVCOMMENT: $text")
         case _ =>
       }
+      Parser.met ! ExecTime("xmlHasNext", TimeLib.getTime - t1)
     }
   }
 }
@@ -114,7 +115,7 @@ class ArticleParser extends Actor {
   }
 
   def parseArticle(art: Article) = {
-    val t1 = new Date().getTime
+    val t1 = TimeLib.getTime
 
     val limit = 50000
     log.debug(s"Parsing article: [${art.title}}] == " +
@@ -124,11 +125,11 @@ class ArticleParser extends Actor {
       + "..."
     )
 
-    val t2 = new Date().getTime
+    val t2 = TimeLib.getTime
     Parser.met ! ExecTime("parseArticle-1", t2-t1)
     context.actorSelection("/user/longestArticle") ! ArticleSummary(art.title, art.text.length())
 
-    val t3 = new Date().getTime
+    val t3 = TimeLib.getTime
 
     if (false) {
       val ap = new ArticleParsingLib()
@@ -138,7 +139,7 @@ class ArticleParser extends Actor {
       val geoPos = context.actorSelection("/user/geoParser") ! art
       val seePlaces = context.actorSelection("/user/seePlaces") ! art
     }
-    Parser.met ! ExecTime("parseArticle-2", new Date().getTime-t3)
+    Parser.met ! ExecTime("parseArticle-2", TimeLib.getTime-t3)
   }
 }
 
@@ -161,7 +162,7 @@ class ArticleSeePlacesParser extends Actor {
 class ArticleParsingLib {
 
   def getGeo(art: Article):Seq[String] = {
-    val t1 = new Date().getTime
+    val t1 = TimeLib.getTime
 
     val text = art.text
     val pos = text.indexOf("{{geo|")
@@ -169,20 +170,20 @@ class ArticleParsingLib {
       val pos2 = text.indexOf("}}", pos + 5)
       val geoFields = text.substring(pos + 6, pos2).split('|')
       if (geoFields.size >= 2) {
-        Parser.met ! ExecTime("getGeo-1", new Date().getTime - t1)
+        Parser.met ! ExecTime("getGeo-1", TimeLib.getTime - t1)
         return geoFields
       }
     }
-    Parser.met ! ExecTime("getGeo-2", new Date().getTime - t1)
+    Parser.met ! ExecTime("getGeo-2", TimeLib.getTime - t1)
     Seq()
   }
 
   def getSeePlaces(art: Article):Int = {
-    val t1 = new Date().getTime
+    val t1 = TimeLib.getTime
 
     val pos = art.text.indexOf("\n==See==\n")
 
-    Parser.met ! ExecTime("seePlaces", new Date().getTime - t1)
+    Parser.met ! ExecTime("seePlaces", TimeLib.getTime - t1)
     pos
   }
 }
@@ -194,7 +195,7 @@ class LongestArticle extends Actor {
 
   override def receive: Receive = {
     case e: ArticleSummary =>
-      val t1 = new Date().getTime
+      val t1 = TimeLib.getTime
 
       log.debug(s"Got: ${e.title} [${e.length}]")
       count += 1
@@ -216,7 +217,7 @@ class LongestArticle extends Actor {
         else
           current
       )
-      Parser.met ! ExecTime("longestArticle", new Date().getTime - t1)
+      Parser.met ! ExecTime("longestArticle", TimeLib.getTime - t1)
 
     case "stats" =>
       println(s"LongestArt: $max (${Parser.agentMaxArtTitle.get()}), count: ${Parser.agentCount.get()}, $count")
