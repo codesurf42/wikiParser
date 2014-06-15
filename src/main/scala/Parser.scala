@@ -27,6 +27,8 @@ class XmlReader extends Actor {
     case XmlFilename(name) =>
       readXmlFile(name)
       context.actorSelection("/user/longestArticle") ! "stats"
+
+      Parser.met ! ShowTime()
     case _ =>
   }
 
@@ -37,9 +39,15 @@ class XmlReader extends Actor {
     val t1 = new Date().getTime
 
     val xml = new XMLEventReader(Source.fromFile(name))
+
+    val t2 = new Date().getTime
+    Parser.met ! ExecTime("readXml-FromFile", t2-t1)
+
     parseXml(xml)
 
-    println("Exec time: " + (new Date().getTime - t1))
+    val t3 = new Date().getTime
+    Parser.met ! ExecTime("readXml-parseXml", t3-t2)
+    println("Exec time: " + (t3 - t1))
 
   }
 
@@ -73,7 +81,9 @@ class XmlReader extends Actor {
         case EvElemEnd(_, "title")  => inPageTitle = false
         case EvElemEnd(_, "text")   =>
           log.debug(s"Got full article text [$lastTitle] - process it!")
+
           context.actorSelection("/user/article") ! Article(lastTitle, pageText)
+
           pageText = ""
           inPageText = false
 
@@ -104,6 +114,8 @@ class ArticleParser extends Actor {
   }
 
   def parseArticle(art: Article) = {
+    val t1 = new Date().getTime
+
     val limit = 50000
     log.debug(s"Parsing article: [${art.title}}] == " +
       art.text.substring(0,(
@@ -111,16 +123,22 @@ class ArticleParser extends Actor {
         else art.text.length()))
       + "..."
     )
+
+    val t2 = new Date().getTime
+    Parser.met ! ExecTime("parseArticle-1", t2-t1)
     context.actorSelection("/user/longestArticle") ! ArticleSummary(art.title, art.text.length())
 
+    val t3 = new Date().getTime
+
     if (false) {
-    val ap = new ArticleParsingLib()
-    val geoPos = ap.getGeo(art)
-    val seePlaces = ap.getSeePlaces(art)
+      val ap = new ArticleParsingLib()
+      val geoPos = ap.getGeo(art)
+      val seePlaces = ap.getSeePlaces(art)
     } else {
       val geoPos = context.actorSelection("/user/geoParser") ! art
       val seePlaces = context.actorSelection("/user/seePlaces") ! art
     }
+    Parser.met ! ExecTime("parseArticle-2", new Date().getTime-t3)
   }
 }
 
@@ -143,20 +161,28 @@ class ArticleSeePlacesParser extends Actor {
 class ArticleParsingLib {
 
   def getGeo(art: Article):Seq[String] = {
+    val t1 = new Date().getTime
+
     val text = art.text
     val pos = text.indexOf("{{geo|")
     if (pos > 0) {
       val pos2 = text.indexOf("}}", pos + 5)
       val geoFields = text.substring(pos + 6, pos2).split('|')
       if (geoFields.size >= 2) {
+        Parser.met ! ExecTime("getGeo-1", new Date().getTime - t1)
         return geoFields
       }
     }
+    Parser.met ! ExecTime("getGeo-2", new Date().getTime - t1)
     Seq()
   }
 
   def getSeePlaces(art: Article):Int = {
+    val t1 = new Date().getTime
+
     val pos = art.text.indexOf("\n==See==\n")
+
+    Parser.met ! ExecTime("seePlaces", new Date().getTime - t1)
     pos
   }
 }
@@ -164,19 +190,34 @@ class ArticleParsingLib {
 class LongestArticle extends Actor {
   val log = Logging(context.system, this)
   var max = 0
-  var count = 0 // naive implementation, this will break when a pool of thread > 1 / actor
+  var count = 0 // naive implementation, or actually a counter of processed msg by single actor
 
   override def receive: Receive = {
     case e: ArticleSummary =>
+      val t1 = new Date().getTime
+
       log.debug(s"Got: ${e.title} [${e.length}]")
       count += 1
       if (count % 1000 == 0) println(count)
+
       Parser.agentCount.send(_ + 1)
-      if (e.title.length > Parser.agentMaxArtTitleLen.get()) {
-        max = e.title.length
-        Parser.agentMaxArtTitleLen.send(max)
-        Parser.agentMaxArtTitle.send(e.title)
-      }
+
+      // a bit more complex computation for an agent
+      Parser.agentMaxArtTitleLen.send(v =>
+        if (v < e.title.length)
+          e.title.length
+        else v
+      )
+
+      // we can just compare which one is the longest
+      Parser.agentMaxArtTitle.send(current =>
+        if (current.length < e.title.length)
+          e.title
+        else
+          current
+      )
+      Parser.met ! ExecTime("longestArticle", new Date().getTime - t1)
+
     case "stats" =>
       println(s"LongestArt: $max (${Parser.agentMaxArtTitle.get()}), count: ${Parser.agentCount.get()}, $count")
   }
@@ -192,6 +233,7 @@ object Parser extends App {
   val art = system.actorOf(Props[LongestArticle].withRouter(RoundRobinRouter(2)), "longestArticle")
   val geo = system.actorOf(Props[ArticleGeoParser].withRouter(RoundRobinRouter(2)), "geoParser")
   val seePl = system.actorOf(Props[ArticleSeePlacesParser], "seePlaces")
+  val met = system.actorOf(Props[Metrics], "metrics")
 
   val agentCount = Agent(0)
   val agentMaxArtTitle = Agent("")
