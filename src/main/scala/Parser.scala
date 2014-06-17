@@ -27,7 +27,11 @@ class XmlReader extends Actor {
       readXmlFile(name)
       context.actorSelection("/user/longestArticle") ! "stats"
 
-      Parser.met ! ShowTime()
+      for (i <- 1.to(5)) {
+        Parser.met ! ShowTime()
+        Thread.sleep(10 * 1000)
+      }
+
     case _ =>
   }
 
@@ -125,26 +129,27 @@ class ArticleParser extends Actor {
       + "..."
     )
 
-    val t2 = TimeLib.getTime
-    Parser.met ! ExecTime("parseArticle-1", t2-t1)
+    Parser.met ! ExecTime("parseArticle-1", TimeLib.getTime-t1)
+
     context.actorSelection("/user/longestArticle") ! ArticleSummary(art.title, art.text.length())
 
     val t3 = TimeLib.getTime
 
     if (false) {
-      val ap = new ArticleParsingLib()
+      val ap = new WikiParsing()
       val geoPos = ap.getGeo(art)
       val seePlaces = ap.getSeePlaces(art)
     } else {
       val geoPos = context.actorSelection("/user/geoParser") ! art
-      val seePlaces = context.actorSelection("/user/seePlaces") ! art
+      context.actorSelection("/user/seePlaces") ! art
+      Parser.met ! ExecTime("count_parseArticle", 0)
     }
     Parser.met ! ExecTime("parseArticle-2", TimeLib.getTime-t3)
   }
 }
 
 class ArticleGeoParser extends Actor {
-  val ap = new ArticleParsingLib()
+  val ap = new WikiParsing()
   override def receive: Actor.Receive = {
     case e: Article => sender ! ap.getGeo(e)
     case _ =>
@@ -152,41 +157,13 @@ class ArticleGeoParser extends Actor {
 }
 
 class ArticleSeePlacesParser extends Actor {
-  val ap = new ArticleParsingLib()
+  val ap = new WikiParsing()
   override def receive: Actor.Receive = {
     case e: Article => sender ! ap.getSeePlaces(e)
     case _ =>
   }
 }
 
-class ArticleParsingLib {
-
-  def getGeo(art: Article):Seq[String] = {
-    val t1 = TimeLib.getTime
-
-    val text = art.text
-    val pos = text.indexOf("{{geo|")
-    if (pos > 0) {
-      val pos2 = text.indexOf("}}", pos + 5)
-      val geoFields = text.substring(pos + 6, pos2).split('|')
-      if (geoFields.size >= 2) {
-        Parser.met ! ExecTime("getGeo-1", TimeLib.getTime - t1)
-        return geoFields
-      }
-    }
-    Parser.met ! ExecTime("getGeo-2", TimeLib.getTime - t1)
-    Seq()
-  }
-
-  def getSeePlaces(art: Article):Int = {
-    val t1 = TimeLib.getTime
-
-    val pos = art.text.indexOf("\n==See==\n")
-
-    Parser.met ! ExecTime("seePlaces", TimeLib.getTime - t1)
-    pos
-  }
-}
 
 class LongestArticle extends Actor {
   val log = Logging(context.system, this)
@@ -201,6 +178,7 @@ class LongestArticle extends Actor {
       count += 1
       if (count % 1000 == 0) println(count)
 
+      // simple counter
       Parser.agentCount.send(_ + 1)
 
       // a bit more complex computation for an agent
@@ -232,8 +210,8 @@ object Parser extends App {
   val reader = system.actorOf(Props[XmlReader], "reader")
   val parser = system.actorOf(Props[ArticleParser].withRouter(RoundRobinRouter(3)), "article")
   val art = system.actorOf(Props[LongestArticle].withRouter(RoundRobinRouter(2)), "longestArticle")
-  val geo = system.actorOf(Props[ArticleGeoParser].withRouter(RoundRobinRouter(2)), "geoParser")
-  val seePl = system.actorOf(Props[ArticleSeePlacesParser], "seePlaces")
+  val geo = system.actorOf(Props[ArticleGeoParser].withRouter(RoundRobinRouter(1)), "geoParser")
+  val seePl = system.actorOf(Props[ArticleSeePlacesParser].withRouter(RoundRobinRouter(3)), "seePlaces")
   val met = system.actorOf(Props[Metrics], "metrics")
 
   val agentCount = Agent(0)
