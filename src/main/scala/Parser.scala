@@ -25,8 +25,11 @@ class XmlReader extends Actor {
   override def receive: Receive = {
     case XmlFilename(name) =>
       readXmlFile(name)
+      println(s"Finished: $name")
+
       context.actorSelection("/user/longestArticle") ! "stats"
 
+      // get latest numbers, they may not be ready yet
       for (i <- 1.to(5)) {
         Parser.met ! ShowTime()
         Thread.sleep(10 * 1000)
@@ -37,6 +40,7 @@ class XmlReader extends Actor {
 
   def readXmlFile(name: String) = {
     log.debug(s"Reading file $name")
+
     // parse xml content
 
     val t1 = TimeLib.getTime
@@ -54,6 +58,10 @@ class XmlReader extends Actor {
 
   }
 
+  /**
+   * StAX processor
+   * @param xml
+   */
   def parseXml(xml: XMLEventReader) {
     var inPage = false
     var inPageText = false
@@ -121,7 +129,7 @@ class ArticleParser extends Actor {
   def parseArticle(art: Article) = {
     val t1 = TimeLib.getTime
 
-    val limit = 50000
+    val limit = 3000
     log.debug(s"Parsing article: [${art.title}}] == " +
       art.text.substring(0,(
         if (art.text.length() > limit) limit
@@ -202,17 +210,21 @@ class LongestArticle extends Actor {
   }
 }
 
+/**
+ *  Akka start
+ */
 object Parser extends App {
 
   implicit val system = ActorSystem("parser")
   //  val log = Logger
 
-  val reader = system.actorOf(Props[XmlReader], "reader")
-  val parser = system.actorOf(Props[ArticleParser].withRouter(RoundRobinRouter(3)), "article")
+  val reader = system.actorOf(Props[XmlReader].withRouter(RoundRobinRouter(2)), "reader")
+  val parser = system.actorOf(Props[ArticleParser].withRouter(RoundRobinRouter(2)), "article")
   val art = system.actorOf(Props[LongestArticle].withRouter(RoundRobinRouter(2)), "longestArticle")
   val geo = system.actorOf(Props[ArticleGeoParser].withRouter(RoundRobinRouter(1)), "geoParser")
-  val seePl = system.actorOf(Props[ArticleSeePlacesParser].withRouter(RoundRobinRouter(3)), "seePlaces")
-  val met = system.actorOf(Props[Metrics], "metrics")
+  val seePl = system.actorOf(Props[ArticleSeePlacesParser].withRouter(RoundRobinRouter(2)), "seePlaces")
+
+  val met = system.actorOf(Props[Metrics].withRouter(RoundRobinRouter(1)), "metrics")
 
   val agentCount = Agent(0)
   val agentMaxArtTitle = Agent("")
@@ -220,8 +232,14 @@ object Parser extends App {
 
   println("Sending flnm")
   val inbox = Inbox.create(system)
-  val file = if (false) "/home/ab/data1_ab/tmp/wiki/enwiki_part1.xml"
-    else "/home/ab/data1_ab/tmp/wiki/enwikivoyage-20140520-pages-articles.xml"
-  inbox.send(reader, XmlFilename(file))
+
+  val file = if (false) "/tmp/wiki/enwiki_part1.xml" // shorter partial file
+    else "/tmp/wiki/enwikivoyage-20140520-pages-articles.xml" // full unpacked XML dump of Wiki-Voyage
+  inbox.send(reader, XmlFilename(dir + file))
+
+  // further approach to optimise:
+//  val dir = "/tmp/wiki/"
+//  for (file <- List("enwiki_140_p1.xml", "enwiki_140_p2.xml")) // two chunks of whole XML
+//    inbox.send(reader, XmlFilename(dir + file))
 
 }
