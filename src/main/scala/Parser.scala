@@ -224,7 +224,7 @@ object Parser extends App {
   val geo = system.actorOf(Props[ArticleGeoParser].withRouter(RoundRobinRouter(1)), "geoParser")
   val seePl = system.actorOf(Props[ArticleSeePlacesParser].withRouter(RoundRobinRouter(2)), "seePlaces")
 
-  val met = system.actorOf(Props[Metrics].withRouter(RoundRobinRouter(1)), "metrics")
+  val met = system.actorOf(Props[Metrics].withRouter(RoundRobinRouter(2)), "metrics")
 
   val agentCount = Agent(0)
   val agentMaxArtTitle = Agent("")

@@ -10,9 +10,14 @@ import scala.collection.mutable
 case class ExecTime(name:String, time:Long)
 case class ShowTime()
 
-class Metrics extends Actor {
+object MetricsStorage {
   val counter = new mutable.HashMap[String, Long]() with mutable.SynchronizedMap[String, Long]
   val execTime = new mutable.HashMap[String, Long]() with mutable.SynchronizedMap[String, Long]
+}
+
+class Metrics extends Actor {
+  val execTime = MetricsStorage.execTime
+  val counter = MetricsStorage.counter
 
   def receive: Receive = {
     case ExecTime(name, time) =>
