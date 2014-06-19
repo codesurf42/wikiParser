@@ -233,12 +233,13 @@ object Parser extends App {
   println("Sending flnm")
   val inbox = Inbox.create(system)
 
-  val file = if (false) "/tmp/wiki/enwiki_part1.xml" // shorter partial file
-    else "/tmp/wiki/enwikivoyage-20140520-pages-articles.xml" // full unpacked XML dump of Wiki-Voyage
+  val dir = "/tmp/wiki/"
+  val file = if (false) "enwiki_part1.xml" // shorter partial file
+  else "enwikivoyage-20140520-pages-articles.xml" // full unpacked XML dump of Wiki-Voyage
+
   inbox.send(reader, XmlFilename(dir + file))
 
   // further approach to optimise:
-//  val dir = "/tmp/wiki/"
 //  for (file <- List("enwiki_140_p1.xml", "enwiki_140_p2.xml")) // two chunks of whole XML
 //    inbox.send(reader, XmlFilename(dir + file))
 
